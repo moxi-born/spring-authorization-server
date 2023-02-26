@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2021 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,19 +18,22 @@ package org.springframework.security.oauth2.server.authorization.client;
 import java.io.Serializable;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import org.springframework.lang.Nullable;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
-import org.springframework.security.oauth2.core.Version;
-import org.springframework.security.oauth2.server.authorization.config.ClientSettings;
-import org.springframework.security.oauth2.server.authorization.config.TokenSettings;
+import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
+import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
+import org.springframework.security.oauth2.server.authorization.util.SpringAuthorizationServerVersion;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * A representation of a client registration with an OAuth 2.0 Authorization Server.
@@ -41,13 +44,17 @@ import org.springframework.util.CollectionUtils;
  * @since 0.0.1
  */
 public class RegisteredClient implements Serializable {
-	private static final long serialVersionUID = Version.SERIAL_VERSION_UID;
+	private static final long serialVersionUID = SpringAuthorizationServerVersion.SERIAL_VERSION_UID;
 	private String id;
 	private String clientId;
+	private Instant clientIdIssuedAt;
 	private String clientSecret;
+	private Instant clientSecretExpiresAt;
+	private String clientName;
 	private Set<ClientAuthenticationMethod> clientAuthenticationMethods;
 	private Set<AuthorizationGrantType> authorizationGrantTypes;
 	private Set<String> redirectUris;
+	private Set<String> postLogoutRedirectUris;
 	private Set<String> scopes;
 	private ClientSettings clientSettings;
 	private TokenSettings tokenSettings;
@@ -74,12 +81,42 @@ public class RegisteredClient implements Serializable {
 	}
 
 	/**
-	 * Returns the client secret.
+	 * Returns the time at which the client identifier was issued.
 	 *
-	 * @return the client secret
+	 * @return the time at which the client identifier was issued
 	 */
+	@Nullable
+	public Instant getClientIdIssuedAt() {
+		return this.clientIdIssuedAt;
+	}
+
+	/**
+	 * Returns the client secret or {@code null} if not available.
+	 *
+	 * @return the client secret or {@code null} if not available
+	 */
+	@Nullable
 	public String getClientSecret() {
 		return this.clientSecret;
+	}
+
+	/**
+	 * Returns the time at which the client secret expires or {@code null} if it does not expire.
+	 *
+	 * @return the time at which the client secret expires or {@code null} if it does not expire
+	 */
+	@Nullable
+	public Instant getClientSecretExpiresAt() {
+		return this.clientSecretExpiresAt;
+	}
+
+	/**
+	 * Returns the client name.
+	 *
+	 * @return the client name
+	 */
+	public String getClientName() {
+		return this.clientName;
 	}
 
 	/**
@@ -107,6 +144,18 @@ public class RegisteredClient implements Serializable {
 	 */
 	public Set<String> getRedirectUris() {
 		return this.redirectUris;
+	}
+
+	/**
+	 * Returns the post logout redirect URI(s) that the client may use for logout.
+	 * The {@code post_logout_redirect_uri} parameter is used by the client when requesting
+	 * that the End-User's User Agent be redirected to after a logout has been performed.
+	 *
+	 * @return the {@code Set} of post logout redirect URI(s)
+	 * @since 1.1.0
+	 */
+	public Set<String> getPostLogoutRedirectUris() {
+		return this.postLogoutRedirectUris;
 	}
 
 	/**
@@ -147,20 +196,24 @@ public class RegisteredClient implements Serializable {
 		RegisteredClient that = (RegisteredClient) obj;
 		return Objects.equals(this.id, that.id) &&
 				Objects.equals(this.clientId, that.clientId) &&
+				Objects.equals(this.clientIdIssuedAt, that.clientIdIssuedAt) &&
 				Objects.equals(this.clientSecret, that.clientSecret) &&
+				Objects.equals(this.clientSecretExpiresAt, that.clientSecretExpiresAt) &&
+				Objects.equals(this.clientName, that.clientName) &&
 				Objects.equals(this.clientAuthenticationMethods, that.clientAuthenticationMethods) &&
 				Objects.equals(this.authorizationGrantTypes, that.authorizationGrantTypes) &&
 				Objects.equals(this.redirectUris, that.redirectUris) &&
+				Objects.equals(this.postLogoutRedirectUris, that.postLogoutRedirectUris) &&
 				Objects.equals(this.scopes, that.scopes) &&
-				Objects.equals(this.clientSettings.settings(), that.getClientSettings().settings()) &&
-				Objects.equals(this.tokenSettings.settings(), that.tokenSettings.settings());
+				Objects.equals(this.clientSettings, that.clientSettings) &&
+				Objects.equals(this.tokenSettings, that.tokenSettings);
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(this.id, this.clientId, this.clientSecret,
-				this.clientAuthenticationMethods, this.authorizationGrantTypes, this.redirectUris,
-				this.scopes, this.clientSettings.settings(), this.tokenSettings.settings());
+		return Objects.hash(this.id, this.clientId, this.clientIdIssuedAt, this.clientSecret, this.clientSecretExpiresAt,
+				this.clientName, this.clientAuthenticationMethods, this.authorizationGrantTypes, this.redirectUris,
+				this.postLogoutRedirectUris, this.scopes, this.clientSettings, this.tokenSettings);
 	}
 
 	@Override
@@ -168,12 +221,14 @@ public class RegisteredClient implements Serializable {
 		return "RegisteredClient {" +
 				"id='" + this.id + '\'' +
 				", clientId='" + this.clientId + '\'' +
+				", clientName='" + this.clientName + '\'' +
 				", clientAuthenticationMethods=" + this.clientAuthenticationMethods +
 				", authorizationGrantTypes=" + this.authorizationGrantTypes +
 				", redirectUris=" + this.redirectUris +
+				", postLogoutRedirectUris=" + this.postLogoutRedirectUris +
 				", scopes=" + this.scopes +
-				", clientSettings=" + this.clientSettings.settings() +
-				", tokenSettings=" + this.tokenSettings.settings() +
+				", clientSettings=" + this.clientSettings +
+				", tokenSettings=" + this.tokenSettings +
 				'}';
 	}
 
@@ -203,39 +258,49 @@ public class RegisteredClient implements Serializable {
 	 * A builder for {@link RegisteredClient}.
 	 */
 	public static class Builder implements Serializable {
-		private static final long serialVersionUID = Version.SERIAL_VERSION_UID;
+		private static final long serialVersionUID = SpringAuthorizationServerVersion.SERIAL_VERSION_UID;
 		private String id;
 		private String clientId;
+		private Instant clientIdIssuedAt;
 		private String clientSecret;
-		private Set<ClientAuthenticationMethod> clientAuthenticationMethods = new HashSet<>();
-		private Set<AuthorizationGrantType> authorizationGrantTypes = new HashSet<>();
-		private Set<String> redirectUris = new HashSet<>();
-		private Set<String> scopes = new HashSet<>();
-		private ClientSettings clientSettings = new ClientSettings();
-		private TokenSettings tokenSettings = new TokenSettings();
+		private Instant clientSecretExpiresAt;
+		private String clientName;
+		private final Set<ClientAuthenticationMethod> clientAuthenticationMethods = new HashSet<>();
+		private final Set<AuthorizationGrantType> authorizationGrantTypes = new HashSet<>();
+		private final Set<String> redirectUris = new HashSet<>();
+		private final Set<String> postLogoutRedirectUris = new HashSet<>();
+		private final Set<String> scopes = new HashSet<>();
+		private ClientSettings clientSettings;
+		private TokenSettings tokenSettings;
 
 		protected Builder(String id) {
 			this.id = id;
 		}
 
 		protected Builder(RegisteredClient registeredClient) {
-			this.id = registeredClient.id;
-			this.clientId = registeredClient.clientId;
-			this.clientSecret = registeredClient.clientSecret;
-			if (!CollectionUtils.isEmpty(registeredClient.clientAuthenticationMethods)) {
-				this.clientAuthenticationMethods.addAll(registeredClient.clientAuthenticationMethods);
+			this.id = registeredClient.getId();
+			this.clientId = registeredClient.getClientId();
+			this.clientIdIssuedAt = registeredClient.getClientIdIssuedAt();
+			this.clientSecret = registeredClient.getClientSecret();
+			this.clientSecretExpiresAt = registeredClient.getClientSecretExpiresAt();
+			this.clientName = registeredClient.getClientName();
+			if (!CollectionUtils.isEmpty(registeredClient.getClientAuthenticationMethods())) {
+				this.clientAuthenticationMethods.addAll(registeredClient.getClientAuthenticationMethods());
 			}
-			if (!CollectionUtils.isEmpty(registeredClient.authorizationGrantTypes)) {
-				this.authorizationGrantTypes.addAll(registeredClient.authorizationGrantTypes);
+			if (!CollectionUtils.isEmpty(registeredClient.getAuthorizationGrantTypes())) {
+				this.authorizationGrantTypes.addAll(registeredClient.getAuthorizationGrantTypes());
 			}
-			if (!CollectionUtils.isEmpty(registeredClient.redirectUris)) {
-				this.redirectUris.addAll(registeredClient.redirectUris);
+			if (!CollectionUtils.isEmpty(registeredClient.getRedirectUris())) {
+				this.redirectUris.addAll(registeredClient.getRedirectUris());
 			}
-			if (!CollectionUtils.isEmpty(registeredClient.scopes)) {
-				this.scopes.addAll(registeredClient.scopes);
+			if (!CollectionUtils.isEmpty(registeredClient.getPostLogoutRedirectUris())) {
+				this.postLogoutRedirectUris.addAll(registeredClient.getPostLogoutRedirectUris());
 			}
-			this.clientSettings = new ClientSettings(registeredClient.clientSettings.settings());
-			this.tokenSettings = new TokenSettings(registeredClient.tokenSettings.settings());
+			if (!CollectionUtils.isEmpty(registeredClient.getScopes())) {
+				this.scopes.addAll(registeredClient.getScopes());
+			}
+			this.clientSettings = ClientSettings.withSettings(registeredClient.getClientSettings().getSettings()).build();
+			this.tokenSettings = TokenSettings.withSettings(registeredClient.getTokenSettings().getSettings()).build();
 		}
 
 		/**
@@ -261,6 +326,17 @@ public class RegisteredClient implements Serializable {
 		}
 
 		/**
+		 * Sets the time at which the client identifier was issued.
+		 *
+		 * @param clientIdIssuedAt the time at which the client identifier was issued
+		 * @return the {@link Builder}
+		 */
+		public Builder clientIdIssuedAt(Instant clientIdIssuedAt) {
+			this.clientIdIssuedAt = clientIdIssuedAt;
+			return this;
+		}
+
+		/**
 		 * Sets the client secret.
 		 *
 		 * @param clientSecret the client secret
@@ -268,6 +344,28 @@ public class RegisteredClient implements Serializable {
 		 */
 		public Builder clientSecret(String clientSecret) {
 			this.clientSecret = clientSecret;
+			return this;
+		}
+
+		/**
+		 * Sets the time at which the client secret expires or {@code null} if it does not expire.
+		 *
+		 * @param clientSecretExpiresAt the time at which the client secret expires or {@code null} if it does not expire
+		 * @return the {@link Builder}
+		 */
+		public Builder clientSecretExpiresAt(Instant clientSecretExpiresAt) {
+			this.clientSecretExpiresAt = clientSecretExpiresAt;
+			return this;
+		}
+
+		/**
+		 * Sets the client name.
+		 *
+		 * @param clientName the client name
+		 * @return the {@link Builder}
+		 */
+		public Builder clientName(String clientName) {
+			this.clientName = clientName;
 			return this;
 		}
 
@@ -343,6 +441,33 @@ public class RegisteredClient implements Serializable {
 		}
 
 		/**
+		 * Adds a post logout redirect URI the client may use for logout.
+		 * The {@code post_logout_redirect_uri} parameter is used by the client when requesting
+		 * that the End-User's User Agent be redirected to after a logout has been performed.
+		 *
+		 * @param postLogoutRedirectUri the post logout redirect URI
+		 * @return the {@link Builder}
+		 * @since 1.1.0
+		 */
+		public Builder postLogoutRedirectUri(String postLogoutRedirectUri) {
+			this.postLogoutRedirectUris.add(postLogoutRedirectUri);
+			return this;
+		}
+
+		/**
+		 * A {@code Consumer} of the post logout redirect URI(s)
+		 * allowing the ability to add, replace, or remove.
+		 *
+		 * @param postLogoutRedirectUrisConsumer a {@link Consumer} of the post logout redirect URI(s)
+		 * @return the {@link Builder}
+		 * @since 1.1.0
+		 */
+		public Builder postLogoutRedirectUris(Consumer<Set<String>> postLogoutRedirectUrisConsumer) {
+			postLogoutRedirectUrisConsumer.accept(this.postLogoutRedirectUris);
+			return this;
+		}
+
+		/**
 		 * Adds a scope the client may use.
 		 *
 		 * @param scope the scope
@@ -366,26 +491,24 @@ public class RegisteredClient implements Serializable {
 		}
 
 		/**
-		 * A {@link Consumer} of the client configuration settings,
-		 * allowing the ability to add, replace, or remove.
+		 * Sets the {@link ClientSettings client configuration settings}.
 		 *
-		 * @param clientSettingsConsumer a {@link Consumer} of the client configuration settings
+		 * @param clientSettings the client configuration settings
 		 * @return the {@link Builder}
 		 */
-		public Builder clientSettings(Consumer<ClientSettings> clientSettingsConsumer) {
-			clientSettingsConsumer.accept(this.clientSettings);
+		public Builder clientSettings(ClientSettings clientSettings) {
+			this.clientSettings = clientSettings;
 			return this;
 		}
 
 		/**
-		 * A {@link Consumer} of the token configuration settings,
-		 * allowing the ability to add, replace, or remove.
+		 * Sets the {@link TokenSettings token configuration settings}.
 		 *
-		 * @param tokenSettingsConsumer a {@link Consumer} of the token configuration settings
+		 * @param tokenSettings the token configuration settings
 		 * @return the {@link Builder}
 		 */
-		public Builder tokenSettings(Consumer<TokenSettings> tokenSettingsConsumer) {
-			tokenSettingsConsumer.accept(this.tokenSettings);
+		public Builder tokenSettings(TokenSettings tokenSettings) {
+			this.tokenSettings = tokenSettings;
 			return this;
 		}
 
@@ -400,12 +523,36 @@ public class RegisteredClient implements Serializable {
 			if (this.authorizationGrantTypes.contains(AuthorizationGrantType.AUTHORIZATION_CODE)) {
 				Assert.notEmpty(this.redirectUris, "redirectUris cannot be empty");
 			}
+			if (!StringUtils.hasText(this.clientName)) {
+				this.clientName = this.id;
+			}
 			if (CollectionUtils.isEmpty(this.clientAuthenticationMethods)) {
-				this.clientAuthenticationMethods.add(ClientAuthenticationMethod.BASIC);
+				this.clientAuthenticationMethods.add(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
+			}
+			if (this.clientSettings == null) {
+				ClientSettings.Builder builder = ClientSettings.builder();
+				if (isPublicClientType()) {
+					// @formatter:off
+					builder
+							.requireProofKey(true)
+							.requireAuthorizationConsent(true);
+					// @formatter:on
+				}
+				this.clientSettings = builder.build();
+			}
+			if (this.tokenSettings == null) {
+				this.tokenSettings = TokenSettings.builder().build();
 			}
 			validateScopes();
 			validateRedirectUris();
+			validatePostLogoutRedirectUris();
 			return create();
+		}
+
+		private boolean isPublicClientType() {
+			return this.authorizationGrantTypes.contains(AuthorizationGrantType.AUTHORIZATION_CODE) &&
+					this.clientAuthenticationMethods.size() == 1 &&
+					this.clientAuthenticationMethods.contains(ClientAuthenticationMethod.NONE);
 		}
 
 		private RegisteredClient create() {
@@ -413,17 +560,22 @@ public class RegisteredClient implements Serializable {
 
 			registeredClient.id = this.id;
 			registeredClient.clientId = this.clientId;
+			registeredClient.clientIdIssuedAt = this.clientIdIssuedAt;
 			registeredClient.clientSecret = this.clientSecret;
+			registeredClient.clientSecretExpiresAt = this.clientSecretExpiresAt;
+			registeredClient.clientName = this.clientName;
 			registeredClient.clientAuthenticationMethods = Collections.unmodifiableSet(
 					new HashSet<>(this.clientAuthenticationMethods));
 			registeredClient.authorizationGrantTypes = Collections.unmodifiableSet(
 					new HashSet<>(this.authorizationGrantTypes));
 			registeredClient.redirectUris = Collections.unmodifiableSet(
 					new HashSet<>(this.redirectUris));
+			registeredClient.postLogoutRedirectUris = Collections.unmodifiableSet(
+					new HashSet<>(this.postLogoutRedirectUris));
 			registeredClient.scopes = Collections.unmodifiableSet(
 					new HashSet<>(this.scopes));
-			registeredClient.clientSettings = new ClientSettings(this.clientSettings.settings());
-			registeredClient.tokenSettings = new TokenSettings(this.tokenSettings.settings());
+			registeredClient.clientSettings = this.clientSettings;
+			registeredClient.tokenSettings = this.tokenSettings;
 
 			return registeredClient;
 		}
@@ -454,9 +606,20 @@ public class RegisteredClient implements Serializable {
 				return;
 			}
 
-			for (String redirectUri : redirectUris) {
+			for (String redirectUri : this.redirectUris) {
 				Assert.isTrue(validateRedirectUri(redirectUri),
 						"redirect_uri \"" + redirectUri + "\" is not a valid redirect URI or contains fragment");
+			}
+		}
+
+		private void validatePostLogoutRedirectUris() {
+			if (CollectionUtils.isEmpty(this.postLogoutRedirectUris)) {
+				return;
+			}
+
+			for (String postLogoutRedirectUri : this.postLogoutRedirectUris) {
+				Assert.isTrue(validateRedirectUri(postLogoutRedirectUri),
+						"post_logout_redirect_uri \"" + postLogoutRedirectUri + "\" is not a valid post logout redirect URI or contains fragment");
 			}
 		}
 
@@ -468,5 +631,6 @@ public class RegisteredClient implements Serializable {
 				return false;
 			}
 		}
+
 	}
 }

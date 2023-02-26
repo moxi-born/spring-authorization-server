@@ -22,10 +22,21 @@ import org.springframework.lang.Nullable;
  *
  * @author Joe Grandja
  * @author Anoop Garlapati
+ * @author Ovidiu Popa
  * @see RegisteredClient
  * @since 0.0.1
  */
 public interface RegisteredClientRepository {
+
+	/**
+	 * Saves the registered client.
+	 *
+	 * <p>
+	 * IMPORTANT: Sensitive information should be encoded externally from the implementation, e.g. {@link RegisteredClient#getClientSecret()}
+	 *
+	 * @param registeredClient the {@link RegisteredClient}
+	 */
+	void save(RegisteredClient registeredClient);
 
 	/**
 	 * Returns the registered client identified by the provided {@code id},

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2021 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,22 +19,28 @@ import java.security.Principal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.session.SessionInformation;
+import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
-import org.springframework.security.oauth2.core.OAuth2TokenType;
+import org.springframework.security.oauth2.core.OAuth2Token;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
@@ -45,21 +51,37 @@ import org.springframework.security.oauth2.jwt.JoseHeaderNames;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.TestOAuth2Authorizations;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
-import org.springframework.security.oauth2.server.authorization.JwtEncodingContext;
-import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
-import org.springframework.security.oauth2.server.authorization.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.context.AuthorizationServerContextHolder;
+import org.springframework.security.oauth2.server.authorization.context.TestAuthorizationServerContext;
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
+import org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat;
+import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
+import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2AccessTokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2RefreshTokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -76,42 +98,67 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 	private OAuth2AuthorizationService authorizationService;
 	private JwtEncoder jwtEncoder;
 	private OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer;
+	private OAuth2TokenCustomizer<OAuth2TokenClaimsContext> accessTokenCustomizer;
+	private OAuth2TokenGenerator<?> tokenGenerator;
+	private SessionRegistry sessionRegistry;
 	private OAuth2AuthorizationCodeAuthenticationProvider authenticationProvider;
 
-	@Before
+	@BeforeEach
 	public void setUp() {
 		this.authorizationService = mock(OAuth2AuthorizationService.class);
 		this.jwtEncoder = mock(JwtEncoder.class);
-		this.authenticationProvider = new OAuth2AuthorizationCodeAuthenticationProvider(
-				this.authorizationService, this.jwtEncoder);
 		this.jwtCustomizer = mock(OAuth2TokenCustomizer.class);
-		this.authenticationProvider.setJwtCustomizer(this.jwtCustomizer);
+		JwtGenerator jwtGenerator = new JwtGenerator(this.jwtEncoder);
+		jwtGenerator.setJwtCustomizer(this.jwtCustomizer);
+		this.accessTokenCustomizer = mock(OAuth2TokenCustomizer.class);
+		OAuth2AccessTokenGenerator accessTokenGenerator = new OAuth2AccessTokenGenerator();
+		accessTokenGenerator.setAccessTokenCustomizer(this.accessTokenCustomizer);
+		OAuth2RefreshTokenGenerator refreshTokenGenerator = new OAuth2RefreshTokenGenerator();
+		OAuth2TokenGenerator<OAuth2Token> delegatingTokenGenerator =
+				new DelegatingOAuth2TokenGenerator(jwtGenerator, accessTokenGenerator, refreshTokenGenerator);
+		this.tokenGenerator = spy(new OAuth2TokenGenerator<OAuth2Token>() {
+			@Override
+			public OAuth2Token generate(OAuth2TokenContext context) {
+				return delegatingTokenGenerator.generate(context);
+			}
+		});
+		this.sessionRegistry = mock(SessionRegistry.class);
+		this.authenticationProvider = new OAuth2AuthorizationCodeAuthenticationProvider(
+				this.authorizationService, this.tokenGenerator);
+		this.authenticationProvider.setSessionRegistry(this.sessionRegistry);
+		AuthorizationServerSettings authorizationServerSettings = AuthorizationServerSettings.builder().issuer("https://provider.com").build();
+		AuthorizationServerContextHolder.setContext(new TestAuthorizationServerContext(authorizationServerSettings, null));
+	}
+
+	@AfterEach
+	public void cleanup() {
+		AuthorizationServerContextHolder.resetContext();
 	}
 
 	@Test
 	public void constructorWhenAuthorizationServiceNullThenThrowIllegalArgumentException() {
-		assertThatThrownBy(() -> new OAuth2AuthorizationCodeAuthenticationProvider(null, this.jwtEncoder))
+		assertThatThrownBy(() -> new OAuth2AuthorizationCodeAuthenticationProvider(null, this.tokenGenerator))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessage("authorizationService cannot be null");
 	}
 
 	@Test
-	public void constructorWhenJwtEncoderNullThenThrowIllegalArgumentException() {
+	public void constructorWhenTokenGeneratorNullThenThrowIllegalArgumentException() {
 		assertThatThrownBy(() -> new OAuth2AuthorizationCodeAuthenticationProvider(this.authorizationService, null))
 				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessage("jwtEncoder cannot be null");
-	}
-
-	@Test
-	public void setJwtCustomizerWhenNullThenThrowIllegalArgumentException() {
-		assertThatThrownBy(() -> this.authenticationProvider.setJwtCustomizer(null))
-				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessage("jwtCustomizer cannot be null");
+				.hasMessage("tokenGenerator cannot be null");
 	}
 
 	@Test
 	public void supportsWhenTypeOAuth2AuthorizationCodeAuthenticationTokenThenReturnTrue() {
 		assertThat(this.authenticationProvider.supports(OAuth2AuthorizationCodeAuthenticationToken.class)).isTrue();
+	}
+
+	@Test
+	public void setSessionRegistryWhenNullThenThrowIllegalArgumentException() {
+		assertThatThrownBy(() -> this.authenticationProvider.setSessionRegistry(null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("sessionRegistry cannot be null");
 	}
 
 	@Test
@@ -132,7 +179,7 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 	public void authenticateWhenClientPrincipalNotAuthenticatedThenThrowOAuth2AuthenticationException() {
 		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
 		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
-				registeredClient.getClientId(), registeredClient.getClientSecret(), ClientAuthenticationMethod.BASIC, null);
+				registeredClient.getClientId(), ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret(), null);
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
 				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, null, null);
 		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
@@ -145,7 +192,8 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 	@Test
 	public void authenticateWhenInvalidCodeThenThrowOAuth2AuthenticationException() {
 		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
 				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, null, null);
 		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
@@ -161,8 +209,9 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient2().build();
 		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
-				TestRegisteredClients.registeredClient2().build());
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
 				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, null, null);
 		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
@@ -186,7 +235,8 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
 				OAuth2AuthorizationRequest.class.getName());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
@@ -209,7 +259,34 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
+				OAuth2AuthorizationRequest.class.getName());
+		OAuth2AuthorizationCodeAuthenticationToken authentication =
+				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
+
+		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
+				.isInstanceOf(OAuth2AuthenticationException.class)
+				.extracting(ex -> ((OAuth2AuthenticationException) ex).getError())
+				.extracting("errorCode")
+				.isEqualTo(OAuth2ErrorCodes.INVALID_GRANT);
+	}
+
+	// gh-290
+	@Test
+	public void authenticateWhenExpiredCodeThenThrowOAuth2AuthenticationException() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
+		OAuth2AuthorizationCode authorizationCode = new OAuth2AuthorizationCode(
+				AUTHORIZATION_CODE, Instant.now().minusSeconds(300), Instant.now().minusSeconds(60));
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient)
+				.token(authorizationCode)
+				.build();
+		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
+				.thenReturn(authorization);
+
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
 				OAuth2AuthorizationRequest.class.getName());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
@@ -223,19 +300,120 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 	}
 
 	@Test
+	public void authenticateWhenAccessTokenNotGeneratedThenThrowOAuth2AuthenticationException() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
+				.thenReturn(authorization);
+
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
+				OAuth2AuthorizationRequest.class.getName());
+		OAuth2AuthorizationCodeAuthenticationToken authentication =
+				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
+
+		doAnswer(answer -> {
+			OAuth2TokenContext context = answer.getArgument(0);
+			if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+				return null;
+			} else {
+				return answer.callRealMethod();
+			}
+		}).when(this.tokenGenerator).generate(any());
+
+		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
+				.isInstanceOf(OAuth2AuthenticationException.class)
+				.extracting(ex -> ((OAuth2AuthenticationException) ex).getError())
+				.satisfies(error -> {
+					assertThat(error.getErrorCode()).isEqualTo(OAuth2ErrorCodes.SERVER_ERROR);
+					assertThat(error.getDescription()).contains("The token generator failed to generate the access token.");
+				});
+	}
+
+	@Test
+	public void authenticateWhenRefreshTokenNotGeneratedThenThrowOAuth2AuthenticationException() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
+				.thenReturn(authorization);
+
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
+				OAuth2AuthorizationRequest.class.getName());
+		OAuth2AuthorizationCodeAuthenticationToken authentication =
+				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
+
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt());
+
+		doAnswer(answer -> {
+			OAuth2TokenContext context = answer.getArgument(0);
+			if (OAuth2TokenType.REFRESH_TOKEN.equals(context.getTokenType())) {
+				return null;
+			} else {
+				return answer.callRealMethod();
+			}
+		}).when(this.tokenGenerator).generate(any());
+
+		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
+				.isInstanceOf(OAuth2AuthenticationException.class)
+				.extracting(ex -> ((OAuth2AuthenticationException) ex).getError())
+				.satisfies(error -> {
+					assertThat(error.getErrorCode()).isEqualTo(OAuth2ErrorCodes.SERVER_ERROR);
+					assertThat(error.getDescription()).contains("The token generator failed to generate the refresh token.");
+				});
+	}
+
+	@Test
+	public void authenticateWhenIdTokenNotGeneratedThenThrowOAuth2AuthenticationException() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().scope(OidcScopes.OPENID).build();
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
+				.thenReturn(authorization);
+
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
+				OAuth2AuthorizationRequest.class.getName());
+		OAuth2AuthorizationCodeAuthenticationToken authentication =
+				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
+
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt());
+
+		doAnswer(answer -> {
+			OAuth2TokenContext context = answer.getArgument(0);
+			if (OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue())) {
+				return null;
+			} else {
+				return answer.callRealMethod();
+			}
+		}).when(this.tokenGenerator).generate(any());
+
+		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
+				.isInstanceOf(OAuth2AuthenticationException.class)
+				.extracting(ex -> ((OAuth2AuthenticationException) ex).getError())
+				.satisfies(error -> {
+					assertThat(error.getErrorCode()).isEqualTo(OAuth2ErrorCodes.SERVER_ERROR);
+					assertThat(error.getDescription()).contains("The token generator failed to generate the ID token.");
+				});
+	}
+
+	@Test
 	public void authenticateWhenValidCodeThenReturnAccessToken() {
 		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
 		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
 				OAuth2AuthorizationRequest.class.getName());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
 				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
 
-		when(this.jwtEncoder.encode(any(), any())).thenReturn(createJwt());
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt());
 
 		OAuth2AccessTokenAuthenticationToken accessTokenAuthentication =
 				(OAuth2AccessTokenAuthenticationToken) this.authenticationProvider.authenticate(authentication);
@@ -246,20 +424,19 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		assertThat(jwtEncodingContext.getRegisteredClient()).isEqualTo(registeredClient);
 		assertThat(jwtEncodingContext.<Authentication>getPrincipal()).isEqualTo(authorization.getAttribute(Principal.class.getName()));
 		assertThat(jwtEncodingContext.getAuthorization()).isEqualTo(authorization);
-		assertThat(jwtEncodingContext.getAuthorizedScopes())
-				.isEqualTo(authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
+		assertThat(jwtEncodingContext.getAuthorizedScopes()).isEqualTo(authorization.getAuthorizedScopes());
 		assertThat(jwtEncodingContext.getTokenType()).isEqualTo(OAuth2TokenType.ACCESS_TOKEN);
 		assertThat(jwtEncodingContext.getAuthorizationGrantType()).isEqualTo(AuthorizationGrantType.AUTHORIZATION_CODE);
 		assertThat(jwtEncodingContext.<OAuth2AuthorizationGrantAuthenticationToken>getAuthorizationGrant()).isEqualTo(authentication);
-		assertThat(jwtEncodingContext.getHeaders()).isNotNull();
+		assertThat(jwtEncodingContext.getJwsHeader()).isNotNull();
 		assertThat(jwtEncodingContext.getClaims()).isNotNull();
 
-		ArgumentCaptor<JwtClaimsSet> jwtClaimsSetCaptor = ArgumentCaptor.forClass(JwtClaimsSet.class);
-		verify(this.jwtEncoder).encode(any(), jwtClaimsSetCaptor.capture());
-		JwtClaimsSet jwtClaimsSet = jwtClaimsSetCaptor.getValue();
+		ArgumentCaptor<JwtEncoderParameters> jwtEncoderParametersCaptor = ArgumentCaptor.forClass(JwtEncoderParameters.class);
+		verify(this.jwtEncoder).encode(jwtEncoderParametersCaptor.capture());
+		JwtClaimsSet jwtClaimsSet = jwtEncoderParametersCaptor.getValue().getClaims();
 
 		Set<String> scopes = jwtClaimsSet.getClaim(OAuth2ParameterNames.SCOPE);
-		assertThat(scopes).isEqualTo(authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
+		assertThat(scopes).isEqualTo(authorization.getAuthorizedScopes());
 		assertThat(jwtClaimsSet.getSubject()).isEqualTo(authorization.getPrincipalName());
 
 		ArgumentCaptor<OAuth2Authorization> authorizationCaptor = ArgumentCaptor.forClass(OAuth2Authorization.class);
@@ -269,8 +446,7 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		assertThat(accessTokenAuthentication.getRegisteredClient().getId()).isEqualTo(updatedAuthorization.getRegisteredClientId());
 		assertThat(accessTokenAuthentication.getPrincipal()).isEqualTo(clientPrincipal);
 		assertThat(accessTokenAuthentication.getAccessToken()).isEqualTo(updatedAuthorization.getAccessToken().getToken());
-		assertThat(accessTokenAuthentication.getAccessToken().getScopes())
-				.isEqualTo(authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
+		assertThat(accessTokenAuthentication.getAccessToken().getScopes()).isEqualTo(authorization.getAuthorizedScopes());
 		assertThat(accessTokenAuthentication.getRefreshToken()).isNotNull();
 		assertThat(accessTokenAuthentication.getRefreshToken()).isEqualTo(updatedAuthorization.getRefreshToken().getToken());
 		OAuth2Authorization.Token<OAuth2AuthorizationCode> authorizationCode = updatedAuthorization.getToken(OAuth2AuthorizationCode.class);
@@ -280,17 +456,33 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 	@Test
 	public void authenticateWhenValidCodeAndAuthenticationRequestThenReturnIdToken() {
 		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().scope(OidcScopes.OPENID).build();
-		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		OAuth2AuthorizationCode authorizationCode = new OAuth2AuthorizationCode(
+				"code", Instant.now(), Instant.now().plusSeconds(120));
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient, authorizationCode).build();
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
 				OAuth2AuthorizationRequest.class.getName());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
 				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
 
-		when(this.jwtEncoder.encode(any(), any())).thenReturn(createJwt());
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt());
+
+		Authentication principal = authorization.getAttribute(Principal.class.getName());
+
+		List<SessionInformation> sessions = new ArrayList<>();
+		sessions.add(new SessionInformation(principal.getPrincipal(),
+				"session3", Date.from(Instant.now())));
+		sessions.add(new SessionInformation(principal.getPrincipal(),
+				"session2", Date.from(Instant.now().minus(1, ChronoUnit.HOURS))));
+		sessions.add(new SessionInformation(principal.getPrincipal(),
+				"session1", Date.from(Instant.now().minus(2, ChronoUnit.HOURS))));
+		SessionInformation expectedSession = sessions.get(0);		// Most recent
+		when(this.sessionRegistry.getAllSessions(eq(principal.getPrincipal()), eq(false)))
+				.thenReturn(sessions);
 
 		OAuth2AccessTokenAuthenticationToken accessTokenAuthentication =
 				(OAuth2AccessTokenAuthenticationToken) this.authenticationProvider.authenticate(authentication);
@@ -300,14 +492,14 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		// Access Token context
 		JwtEncodingContext accessTokenContext = jwtEncodingContextCaptor.getAllValues().get(0);
 		assertThat(accessTokenContext.getRegisteredClient()).isEqualTo(registeredClient);
-		assertThat(accessTokenContext.<Authentication>getPrincipal()).isEqualTo(authorization.getAttribute(Principal.class.getName()));
+		assertThat(accessTokenContext.<Authentication>getPrincipal()).isEqualTo(principal);
 		assertThat(accessTokenContext.getAuthorization()).isEqualTo(authorization);
-		assertThat(accessTokenContext.getAuthorizedScopes())
-				.isEqualTo(authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
+		assertThat(accessTokenContext.getAuthorization().getAccessToken()).isNull();
+		assertThat(accessTokenContext.getAuthorizedScopes()).isEqualTo(authorization.getAuthorizedScopes());
 		assertThat(accessTokenContext.getTokenType()).isEqualTo(OAuth2TokenType.ACCESS_TOKEN);
 		assertThat(accessTokenContext.getAuthorizationGrantType()).isEqualTo(AuthorizationGrantType.AUTHORIZATION_CODE);
 		assertThat(accessTokenContext.<OAuth2AuthorizationGrantAuthenticationToken>getAuthorizationGrant()).isEqualTo(authentication);
-		assertThat(accessTokenContext.getHeaders()).isNotNull();
+		assertThat(accessTokenContext.getJwsHeader()).isNotNull();
 		assertThat(accessTokenContext.getClaims()).isNotNull();
 		Map<String, Object> claims = new HashMap<>();
 		accessTokenContext.getClaims().claims(claims::putAll);
@@ -316,17 +508,19 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		// ID Token context
 		JwtEncodingContext idTokenContext = jwtEncodingContextCaptor.getAllValues().get(1);
 		assertThat(idTokenContext.getRegisteredClient()).isEqualTo(registeredClient);
-		assertThat(idTokenContext.<Authentication>getPrincipal()).isEqualTo(authorization.getAttribute(Principal.class.getName()));
-		assertThat(idTokenContext.getAuthorization()).isEqualTo(authorization);
-		assertThat(idTokenContext.getAuthorizedScopes())
-				.isEqualTo(authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
+		assertThat(idTokenContext.<Authentication>getPrincipal()).isEqualTo(principal);
+		assertThat(idTokenContext.getAuthorization()).isNotEqualTo(authorization);
+		assertThat(idTokenContext.getAuthorization().getAccessToken()).isNotNull();
+		assertThat(idTokenContext.getAuthorizedScopes()).isEqualTo(authorization.getAuthorizedScopes());
 		assertThat(idTokenContext.getTokenType().getValue()).isEqualTo(OidcParameterNames.ID_TOKEN);
 		assertThat(idTokenContext.getAuthorizationGrantType()).isEqualTo(AuthorizationGrantType.AUTHORIZATION_CODE);
 		assertThat(idTokenContext.<OAuth2AuthorizationGrantAuthenticationToken>getAuthorizationGrant()).isEqualTo(authentication);
-		assertThat(idTokenContext.getHeaders()).isNotNull();
+		SessionInformation sessionInformation = idTokenContext.get(SessionInformation.class);
+		assertThat(sessionInformation).isNotNull().isSameAs(expectedSession);
+		assertThat(idTokenContext.getJwsHeader()).isNotNull();
 		assertThat(idTokenContext.getClaims()).isNotNull();
 
-		verify(this.jwtEncoder, times(2)).encode(any(), any());		// Access token and ID Token
+		verify(this.jwtEncoder, times(2)).encode(any());		// Access token and ID Token
 
 		ArgumentCaptor<OAuth2Authorization> authorizationCaptor = ArgumentCaptor.forClass(OAuth2Authorization.class);
 		verify(this.authorizationService).save(authorizationCaptor.capture());
@@ -335,16 +529,72 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		assertThat(accessTokenAuthentication.getRegisteredClient().getId()).isEqualTo(updatedAuthorization.getRegisteredClientId());
 		assertThat(accessTokenAuthentication.getPrincipal()).isEqualTo(clientPrincipal);
 		assertThat(accessTokenAuthentication.getAccessToken()).isEqualTo(updatedAuthorization.getAccessToken().getToken());
-		Set<String> accessTokenScopes = new HashSet<>(updatedAuthorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
+		Set<String> accessTokenScopes = new HashSet<>(updatedAuthorization.getAuthorizedScopes());
 		assertThat(accessTokenAuthentication.getAccessToken().getScopes()).isEqualTo(accessTokenScopes);
 		assertThat(accessTokenAuthentication.getRefreshToken()).isNotNull();
 		assertThat(accessTokenAuthentication.getRefreshToken()).isEqualTo(updatedAuthorization.getRefreshToken().getToken());
-		OAuth2Authorization.Token<OAuth2AuthorizationCode> authorizationCode = updatedAuthorization.getToken(OAuth2AuthorizationCode.class);
-		assertThat(authorizationCode.isInvalidated()).isTrue();
+		OAuth2Authorization.Token<OAuth2AuthorizationCode> authorizationCodeToken = updatedAuthorization.getToken(OAuth2AuthorizationCode.class);
+		assertThat(authorizationCodeToken.isInvalidated()).isTrue();
 		OAuth2Authorization.Token<OidcIdToken> idToken = updatedAuthorization.getToken(OidcIdToken.class);
 		assertThat(idToken).isNotNull();
 		assertThat(accessTokenAuthentication.getAdditionalParameters())
 				.containsExactly(entry(OidcParameterNames.ID_TOKEN, idToken.getToken().getTokenValue()));
+	}
+
+	// gh-296
+	@Test
+	public void authenticateWhenPublicClientThenRefreshTokenNotIssued() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredPublicClient()
+				.authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+				.build();
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
+				.thenReturn(authorization);
+
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.NONE, null);
+		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
+				OAuth2AuthorizationRequest.class.getName());
+		OAuth2AuthorizationCodeAuthenticationToken authentication =
+				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
+
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt());
+
+		OAuth2AccessTokenAuthenticationToken accessTokenAuthentication =
+				(OAuth2AccessTokenAuthenticationToken) this.authenticationProvider.authenticate(authentication);
+
+		ArgumentCaptor<JwtEncodingContext> jwtEncodingContextCaptor = ArgumentCaptor.forClass(JwtEncodingContext.class);
+		verify(this.jwtCustomizer).customize(jwtEncodingContextCaptor.capture());
+		JwtEncodingContext jwtEncodingContext = jwtEncodingContextCaptor.getValue();
+		assertThat(jwtEncodingContext.getRegisteredClient()).isEqualTo(registeredClient);
+		assertThat(jwtEncodingContext.<Authentication>getPrincipal()).isEqualTo(authorization.getAttribute(Principal.class.getName()));
+		assertThat(jwtEncodingContext.getAuthorization()).isEqualTo(authorization);
+		assertThat(jwtEncodingContext.getAuthorizedScopes()).isEqualTo(authorization.getAuthorizedScopes());
+		assertThat(jwtEncodingContext.getTokenType()).isEqualTo(OAuth2TokenType.ACCESS_TOKEN);
+		assertThat(jwtEncodingContext.getAuthorizationGrantType()).isEqualTo(AuthorizationGrantType.AUTHORIZATION_CODE);
+		assertThat(jwtEncodingContext.<OAuth2AuthorizationGrantAuthenticationToken>getAuthorizationGrant()).isEqualTo(authentication);
+		assertThat(jwtEncodingContext.getJwsHeader()).isNotNull();
+		assertThat(jwtEncodingContext.getClaims()).isNotNull();
+
+		ArgumentCaptor<JwtEncoderParameters> jwtEncoderParametersCaptor = ArgumentCaptor.forClass(JwtEncoderParameters.class);
+		verify(this.jwtEncoder).encode(jwtEncoderParametersCaptor.capture());
+		JwtClaimsSet jwtClaimsSet = jwtEncoderParametersCaptor.getValue().getClaims();
+
+		Set<String> scopes = jwtClaimsSet.getClaim(OAuth2ParameterNames.SCOPE);
+		assertThat(scopes).isEqualTo(authorization.getAuthorizedScopes());
+		assertThat(jwtClaimsSet.getSubject()).isEqualTo(authorization.getPrincipalName());
+
+		ArgumentCaptor<OAuth2Authorization> authorizationCaptor = ArgumentCaptor.forClass(OAuth2Authorization.class);
+		verify(this.authorizationService).save(authorizationCaptor.capture());
+		OAuth2Authorization updatedAuthorization = authorizationCaptor.getValue();
+
+		assertThat(accessTokenAuthentication.getRegisteredClient().getId()).isEqualTo(updatedAuthorization.getRegisteredClientId());
+		assertThat(accessTokenAuthentication.getPrincipal()).isEqualTo(clientPrincipal);
+		assertThat(accessTokenAuthentication.getAccessToken()).isEqualTo(updatedAuthorization.getAccessToken().getToken());
+		assertThat(accessTokenAuthentication.getAccessToken().getScopes()).isEqualTo(authorization.getAuthorizedScopes());
+		assertThat(accessTokenAuthentication.getRefreshToken()).isNull();
+		OAuth2Authorization.Token<OAuth2AuthorizationCode> authorizationCode = updatedAuthorization.getToken(OAuth2AuthorizationCode.class);
+		assertThat(authorizationCode.isInvalidated()).isTrue();
 	}
 
 	@Test
@@ -352,15 +602,18 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		Duration accessTokenTTL = Duration.ofHours(2);
 		Duration refreshTokenTTL = Duration.ofDays(1);
 		RegisteredClient registeredClient = TestRegisteredClients.registeredClient()
-				.tokenSettings(tokenSettings ->
-						tokenSettings.accessTokenTimeToLive(accessTokenTTL).refreshTokenTimeToLive(refreshTokenTTL))
+				.tokenSettings(TokenSettings.builder()
+						.accessTokenTimeToLive(accessTokenTTL)
+						.refreshTokenTimeToLive(refreshTokenTTL)
+						.build())
 				.build();
 
 		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
 				OAuth2AuthorizationRequest.class.getName());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
@@ -368,7 +621,7 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 
 		Instant accessTokenIssuedAt = Instant.now();
 		Instant accessTokenExpiresAt = accessTokenIssuedAt.plus(accessTokenTTL);
-		when(this.jwtEncoder.encode(any(), any())).thenReturn(createJwt(accessTokenIssuedAt, accessTokenExpiresAt));
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt(accessTokenIssuedAt, accessTokenExpiresAt));
 
 		OAuth2AccessTokenAuthenticationToken accessTokenAuthentication =
 				(OAuth2AccessTokenAuthenticationToken) this.authenticationProvider.authenticate(authentication);
@@ -398,18 +651,44 @@ public class OAuth2AuthorizationCodeAuthenticationProviderTests {
 		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
 				.thenReturn(authorization);
 
-		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(registeredClient);
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
 		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
 				OAuth2AuthorizationRequest.class.getName());
 		OAuth2AuthorizationCodeAuthenticationToken authentication =
 				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
 
-		when(this.jwtEncoder.encode(any(), any())).thenReturn(createJwt());
+		when(this.jwtEncoder.encode(any())).thenReturn(createJwt());
 
 		OAuth2AccessTokenAuthenticationToken accessTokenAuthentication =
 				(OAuth2AccessTokenAuthenticationToken) this.authenticationProvider.authenticate(authentication);
 
 		assertThat(accessTokenAuthentication.getRefreshToken()).isNull();
+	}
+
+	@Test
+	public void authenticateWhenAccessTokenFormatReferenceThenAccessTokenGeneratorCalled() {
+		// @formatter:off
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient()
+				.tokenSettings(TokenSettings.builder()
+						.accessTokenFormat(OAuth2TokenFormat.REFERENCE)
+						.build())
+				.build();
+		// @formatter:on
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		when(this.authorizationService.findByToken(eq(AUTHORIZATION_CODE), eq(AUTHORIZATION_CODE_TOKEN_TYPE)))
+				.thenReturn(authorization);
+
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2AuthorizationRequest authorizationRequest = authorization.getAttribute(
+				OAuth2AuthorizationRequest.class.getName());
+		OAuth2AuthorizationCodeAuthenticationToken authentication =
+				new OAuth2AuthorizationCodeAuthenticationToken(AUTHORIZATION_CODE, clientPrincipal, authorizationRequest.getRedirectUri(), null);
+
+		this.authenticationProvider.authenticate(authentication);
+
+		verify(this.accessTokenCustomizer).customize(any());
 	}
 
 	private static Jwt createJwt() {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2021 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
  */
 package org.springframework.security.oauth2.server.authorization.client;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -38,10 +40,11 @@ public class RegisteredClientTests {
 	private static final String CLIENT_ID = "client-1";
 	private static final String CLIENT_SECRET = "secret";
 	private static final Set<String> REDIRECT_URIS = Collections.singleton("https://example.com");
+	private static final Set<String> POST_LOGOUT_REDIRECT_URIS = Collections.singleton("https://example.com/oidc-post-logout");
 	private static final Set<String> SCOPES = Collections.unmodifiableSet(
 			Stream.of("openid", "profile", "email").collect(Collectors.toSet()));
 	private static final Set<ClientAuthenticationMethod> CLIENT_AUTHENTICATION_METHODS =
-			Collections.singleton(ClientAuthenticationMethod.BASIC);
+			Collections.singleton(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
 
 	@Test
 	public void buildWhenAuthorizationGrantTypesNotSetThenThrowIllegalArgumentException() {
@@ -51,29 +54,39 @@ public class RegisteredClientTests {
 						.clientSecret(CLIENT_SECRET)
 						.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 						.scopes(scopes -> scopes.addAll(SCOPES))
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.build()
 		).isInstanceOf(IllegalArgumentException.class);
 	}
 
 	@Test
 	public void buildWhenAllAttributesProvidedThenAllAttributesAreSet() {
+		Instant clientIdIssuedAt = Instant.now();
+		Instant clientSecretExpiresAt = clientIdIssuedAt.plus(30, ChronoUnit.DAYS);
 		RegisteredClient registration = RegisteredClient.withId(ID)
 				.clientId(CLIENT_ID)
+				.clientIdIssuedAt(clientIdIssuedAt)
 				.clientSecret(CLIENT_SECRET)
+				.clientSecretExpiresAt(clientSecretExpiresAt)
+				.clientName("client-name")
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
+				.postLogoutRedirectUris(postLogoutRedirectUris -> postLogoutRedirectUris.addAll(POST_LOGOUT_REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
 
 		assertThat(registration.getId()).isEqualTo(ID);
 		assertThat(registration.getClientId()).isEqualTo(CLIENT_ID);
+		assertThat(registration.getClientIdIssuedAt()).isEqualTo(clientIdIssuedAt);
 		assertThat(registration.getClientSecret()).isEqualTo(CLIENT_SECRET);
+		assertThat(registration.getClientSecretExpiresAt()).isEqualTo(clientSecretExpiresAt);
+		assertThat(registration.getClientName()).isEqualTo("client-name");
 		assertThat(registration.getAuthorizationGrantTypes())
 				.isEqualTo(Collections.singleton(AuthorizationGrantType.AUTHORIZATION_CODE));
 		assertThat(registration.getClientAuthenticationMethods()).isEqualTo(CLIENT_AUTHENTICATION_METHODS);
 		assertThat(registration.getRedirectUris()).isEqualTo(REDIRECT_URIS);
+		assertThat(registration.getPostLogoutRedirectUris()).isEqualTo(POST_LOGOUT_REDIRECT_URIS);
 		assertThat(registration.getScopes()).isEqualTo(SCOPES);
 	}
 
@@ -90,7 +103,7 @@ public class RegisteredClientTests {
 						.clientId(null)
 						.clientSecret(CLIENT_SECRET)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 						.scopes(scopes -> scopes.addAll(SCOPES))
 						.build()
@@ -104,7 +117,7 @@ public class RegisteredClientTests {
 						.clientId(CLIENT_ID)
 						.clientSecret(CLIENT_SECRET)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.scopes(scopes -> scopes.addAll(SCOPES))
 						.build()
 		).isInstanceOf(IllegalArgumentException.class);
@@ -117,7 +130,7 @@ public class RegisteredClientTests {
 						.clientId(CLIENT_ID)
 						.clientSecret(CLIENT_SECRET)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.redirectUri("https://example.com")
 						.redirectUris(Set::clear)
 						.scopes(scopes -> scopes.addAll(SCOPES))
@@ -136,7 +149,7 @@ public class RegisteredClientTests {
 				.build();
 
 		assertThat(registration.getClientAuthenticationMethods())
-				.isEqualTo(Collections.singleton(ClientAuthenticationMethod.BASIC));
+				.isEqualTo(Collections.singleton(ClientAuthenticationMethod.CLIENT_SECRET_BASIC));
 	}
 
 	@Test
@@ -145,7 +158,7 @@ public class RegisteredClientTests {
 				.clientId(CLIENT_ID)
 				.clientSecret(CLIENT_SECRET)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.build();
 	}
@@ -156,7 +169,7 @@ public class RegisteredClientTests {
 				.clientId(CLIENT_ID)
 				.clientSecret(CLIENT_SECRET)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
@@ -170,7 +183,7 @@ public class RegisteredClientTests {
 				RegisteredClient.withId(ID)
 						.clientId(CLIENT_ID)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 						.scope("openid profile")
 						.build()
@@ -184,7 +197,7 @@ public class RegisteredClientTests {
 						.clientId(CLIENT_ID)
 						.clientSecret(CLIENT_SECRET)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 						.scope("an\"invalid\"scope")
 						.build()
@@ -198,7 +211,7 @@ public class RegisteredClientTests {
 						.clientId(CLIENT_ID)
 						.clientSecret(CLIENT_SECRET)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.redirectUri("invalid URI")
 						.scopes(scopes -> scopes.addAll(SCOPES))
 						.build()
@@ -212,8 +225,37 @@ public class RegisteredClientTests {
 						.clientId(CLIENT_ID)
 						.clientSecret(CLIENT_SECRET)
 						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-						.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 						.redirectUri("https://example.com/page#fragment")
+						.scopes(scopes -> scopes.addAll(SCOPES))
+						.build()
+		).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	public void buildWhenPostLogoutRedirectUriInvalidThenThrowIllegalArgumentException() {
+		assertThatThrownBy(() ->
+				RegisteredClient.withId(ID)
+						.clientId(CLIENT_ID)
+						.clientSecret(CLIENT_SECRET)
+						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+						.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
+						.postLogoutRedirectUri("invalid URI")
+						.build()
+		).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	public void buildWhenPostLogoutRedirectUriContainsFragmentThenThrowIllegalArgumentException() {
+		assertThatThrownBy(() ->
+				RegisteredClient.withId(ID)
+						.clientId(CLIENT_ID)
+						.clientSecret(CLIENT_SECRET)
+						.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+						.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+						.redirectUri("https://example.com")
+						.postLogoutRedirectUri("https://example.com/index#fragment")
 						.scopes(scopes -> scopes.addAll(SCOPES))
 						.build()
 		).isInstanceOf(IllegalArgumentException.class);
@@ -226,7 +268,7 @@ public class RegisteredClientTests {
 				.clientSecret(CLIENT_SECRET)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
 				.authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
@@ -244,7 +286,7 @@ public class RegisteredClientTests {
 					authorizationGrantTypes.add(AuthorizationGrantType.AUTHORIZATION_CODE);
 					authorizationGrantTypes.add(AuthorizationGrantType.CLIENT_CREDENTIALS);
 				})
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
@@ -261,7 +303,7 @@ public class RegisteredClientTests {
 					.clientSecret(CLIENT_SECRET)
 					.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
 					.authorizationGrantTypes(Set::clear)
-					.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+					.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 					.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 					.scopes(scopes -> scopes.addAll(SCOPES))
 					.build();
@@ -274,14 +316,14 @@ public class RegisteredClientTests {
 				.clientId(CLIENT_ID)
 				.clientSecret(CLIENT_SECRET)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.POST)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
 
 		assertThat(registration.getClientAuthenticationMethods())
-				.containsExactlyInAnyOrder(ClientAuthenticationMethod.BASIC, ClientAuthenticationMethod.POST);
+				.containsExactlyInAnyOrder(ClientAuthenticationMethod.CLIENT_SECRET_BASIC, ClientAuthenticationMethod.CLIENT_SECRET_POST);
 	}
 
 	@Test
@@ -291,15 +333,15 @@ public class RegisteredClientTests {
 				.clientSecret(CLIENT_SECRET)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
 				.clientAuthenticationMethods(clientAuthenticationMethods -> {
-					clientAuthenticationMethods.add(ClientAuthenticationMethod.BASIC);
-					clientAuthenticationMethods.add(ClientAuthenticationMethod.POST);
+					clientAuthenticationMethods.add(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
+					clientAuthenticationMethods.add(ClientAuthenticationMethod.CLIENT_SECRET_POST);
 				})
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
 
 		assertThat(registration.getClientAuthenticationMethods())
-				.containsExactlyInAnyOrder(ClientAuthenticationMethod.BASIC, ClientAuthenticationMethod.POST);
+				.containsExactlyInAnyOrder(ClientAuthenticationMethod.CLIENT_SECRET_BASIC, ClientAuthenticationMethod.CLIENT_SECRET_POST);
 	}
 
 	@Test
@@ -310,7 +352,7 @@ public class RegisteredClientTests {
 				.clientId(CLIENT_ID)
 				.clientSecret(CLIENT_SECRET)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-				.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
 				.scopes(scopes -> scopes.addAll(SCOPES))
 				.build();
@@ -325,28 +367,36 @@ public class RegisteredClientTests {
 
 		assertThat(registration.getId()).isEqualTo(updated.getId());
 		assertThat(registration.getClientId()).isEqualTo(updated.getClientId());
+		assertThat(registration.getClientIdIssuedAt()).isEqualTo(updated.getClientIdIssuedAt());
 		assertThat(registration.getClientSecret()).isEqualTo(updated.getClientSecret());
+		assertThat(registration.getClientSecretExpiresAt()).isEqualTo(updated.getClientSecretExpiresAt());
+		assertThat(registration.getClientName()).isEqualTo(updated.getClientName());
 		assertThat(registration.getClientAuthenticationMethods()).isEqualTo(updated.getClientAuthenticationMethods());
 		assertThat(registration.getClientAuthenticationMethods()).isNotSameAs(updated.getClientAuthenticationMethods());
 		assertThat(registration.getAuthorizationGrantTypes()).isEqualTo(updated.getAuthorizationGrantTypes());
 		assertThat(registration.getAuthorizationGrantTypes()).isNotSameAs(updated.getAuthorizationGrantTypes());
 		assertThat(registration.getRedirectUris()).isEqualTo(updated.getRedirectUris());
 		assertThat(registration.getRedirectUris()).isNotSameAs(updated.getRedirectUris());
+		assertThat(registration.getPostLogoutRedirectUris()).isEqualTo(updated.getPostLogoutRedirectUris());
+		assertThat(registration.getPostLogoutRedirectUris()).isNotSameAs(updated.getPostLogoutRedirectUris());
 		assertThat(registration.getScopes()).isEqualTo(updated.getScopes());
 		assertThat(registration.getScopes()).isNotSameAs(updated.getScopes());
-		assertThat(registration.getClientSettings().settings()).isEqualTo(updated.getClientSettings().settings());
+		assertThat(registration.getClientSettings()).isEqualTo(updated.getClientSettings());
 		assertThat(registration.getClientSettings()).isNotSameAs(updated.getClientSettings());
-		assertThat(registration.getTokenSettings().settings()).isEqualTo(updated.getTokenSettings().settings());
+		assertThat(registration.getTokenSettings()).isEqualTo(updated.getTokenSettings());
 		assertThat(registration.getTokenSettings()).isNotSameAs(updated.getTokenSettings());
 	}
 
 	@Test
 	public void buildWhenRegisteredClientValuesOverriddenThenPropagated() {
 		RegisteredClient registration = TestRegisteredClients.registeredClient().build();
+		String newName = "client-name";
 		String newSecret = "new-secret";
 		String newScope = "new-scope";
 		String newRedirectUri = "https://another-redirect-uri.com";
+		String newPostLogoutRedirectUri = "https://another-post-logout-redirect-uri.com";
 		RegisteredClient updated = RegisteredClient.from(registration)
+				.clientName(newName)
 				.clientSecret(newSecret)
 				.scopes(scopes -> {
 					scopes.clear();
@@ -356,13 +406,49 @@ public class RegisteredClientTests {
 					redirectUris.clear();
 					redirectUris.add(newRedirectUri);
 				})
+				.postLogoutRedirectUris(postLogoutRedirectUris -> {
+					postLogoutRedirectUris.clear();
+					postLogoutRedirectUris.add(newPostLogoutRedirectUri);
+				})
 				.build();
 
+		assertThat(registration.getClientName()).isNotEqualTo(newName);
+		assertThat(updated.getClientName()).isEqualTo(newName);
 		assertThat(registration.getClientSecret()).isNotEqualTo(newSecret);
 		assertThat(updated.getClientSecret()).isEqualTo(newSecret);
 		assertThat(registration.getScopes()).doesNotContain(newScope);
 		assertThat(updated.getScopes()).containsExactly(newScope);
 		assertThat(registration.getRedirectUris()).doesNotContain(newRedirectUri);
 		assertThat(updated.getRedirectUris()).containsExactly(newRedirectUri);
+		assertThat(registration.getPostLogoutRedirectUris()).doesNotContain(newPostLogoutRedirectUri);
+		assertThat(updated.getPostLogoutRedirectUris()).containsExactly(newPostLogoutRedirectUri);
 	}
+
+	@Test
+	public void buildWhenPublicClientTypeThenDefaultSettings() {
+		Instant clientIdIssuedAt = Instant.now();
+		RegisteredClient registration = RegisteredClient.withId(ID)
+				.clientId(CLIENT_ID)
+				.clientIdIssuedAt(clientIdIssuedAt)
+				.clientName("client-name")
+				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+				.clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+				.redirectUris(redirectUris -> redirectUris.addAll(REDIRECT_URIS))
+				.scopes(scopes -> scopes.addAll(SCOPES))
+				.build();
+
+		assertThat(registration.getId()).isEqualTo(ID);
+		assertThat(registration.getClientId()).isEqualTo(CLIENT_ID);
+		assertThat(registration.getClientIdIssuedAt()).isEqualTo(clientIdIssuedAt);
+		assertThat(registration.getClientName()).isEqualTo("client-name");
+		assertThat(registration.getAuthorizationGrantTypes())
+				.isEqualTo(Collections.singleton(AuthorizationGrantType.AUTHORIZATION_CODE));
+		assertThat(registration.getClientAuthenticationMethods())
+				.isEqualTo(Collections.singleton(ClientAuthenticationMethod.NONE));
+		assertThat(registration.getRedirectUris()).isEqualTo(REDIRECT_URIS);
+		assertThat(registration.getScopes()).isEqualTo(SCOPES);
+		assertThat(registration.getClientSettings().isRequireProofKey()).isTrue();
+		assertThat(registration.getClientSettings().isRequireAuthorizationConsent()).isTrue();
+	}
+
 }
