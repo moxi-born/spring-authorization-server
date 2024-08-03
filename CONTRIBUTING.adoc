@@ -4,14 +4,12 @@ Spring Authorization Server is released under the Apache 2.0 license.
 If you would like to contribute something, or simply want to hack on the code this document should help you https://github.com/spring-projects/spring-authorization-server#getting-started[get started].
 
 == Code of Conduct
-This project adheres to the Contributor Covenant link:CODE_OF_CONDUCT.adoc[code of conduct].
-By participating, you are expected to uphold this code.
-Please report unacceptable behavior to spring-code-of-conduct@pivotal.io.
+Please see our https://github.com/spring-projects/.github/blob/main/CODE_OF_CONDUCT.md[code of conduct].
 
 == Using GitHub Issues
 We use GitHub issues to track bugs and enhancements.
 If you have a general usage question please ask on https://stackoverflow.com[Stack Overflow].
-The Spring Security team and the broader community monitor the https://stackoverflow.com/tags/spring-security[`spring-security`] tag.
+The Spring Security team and the broader community monitor the https://stackoverflow.com/tags/spring-authorization-server[`spring-authorization-server`] tag.
 
 If you are reporting a bug, please help to speed up problem diagnosis by providing as much information as possible.
 Ideally, that would include a https://stackoverflow.com/help/minimal-reproducible-example[complete & minimal sample project] that reproduces the problem.

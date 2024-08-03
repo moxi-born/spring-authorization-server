@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,33 +36,43 @@ import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.oidc.OidcClientRegistration;
+import org.springframework.security.oauth2.server.authorization.oidc.converter.RegisteredClientOidcClientRegistrationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.AbstractOAuth2TokenAuthenticationToken;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 /**
- * An {@link AuthenticationProvider} implementation for OpenID Connect 1.0 Dynamic Client Configuration Endpoint.
+ * An {@link AuthenticationProvider} implementation for OpenID Connect 1.0 Dynamic Client
+ * Configuration Endpoint.
  *
  * @author Ovidiu Popa
  * @author Joe Grandja
  * @author Rafal Lewczuk
+ * @author Dmitriy Dubson
  * @since 0.4.0
  * @see RegisteredClientRepository
  * @see OAuth2AuthorizationService
  * @see OidcClientRegistrationAuthenticationToken
  * @see OidcClientRegistrationAuthenticationProvider
- * @see <a href="https://openid.net/specs/openid-connect-registration-1_0.html#ClientConfigurationEndpoint">4. Client Configuration Endpoint</a>
+ * @see <a href=
+ * "https://openid.net/specs/openid-connect-registration-1_0.html#ClientConfigurationEndpoint">4.
+ * Client Configuration Endpoint</a>
  */
 public final class OidcClientConfigurationAuthenticationProvider implements AuthenticationProvider {
+
 	static final String DEFAULT_CLIENT_CONFIGURATION_AUTHORIZED_SCOPE = "client.read";
+
 	private final Log logger = LogFactory.getLog(getClass());
+
 	private final RegisteredClientRepository registeredClientRepository;
+
 	private final OAuth2AuthorizationService authorizationService;
-	private final Converter<RegisteredClient, OidcClientRegistration> clientRegistrationConverter;
+
+	private Converter<RegisteredClient, OidcClientRegistration> clientRegistrationConverter;
 
 	/**
-	 * Constructs an {@code OidcClientConfigurationAuthenticationProvider} using the provided parameters.
-	 *
+	 * Constructs an {@code OidcClientConfigurationAuthenticationProvider} using the
+	 * provided parameters.
 	 * @param registeredClientRepository the repository of registered clients
 	 * @param authorizationService the authorization service
 	 */
@@ -75,29 +85,44 @@ public final class OidcClientConfigurationAuthenticationProvider implements Auth
 		this.clientRegistrationConverter = new RegisteredClientOidcClientRegistrationConverter();
 	}
 
+	/**
+	 * Sets the {@link Converter} used for converting a {@link RegisteredClient} to an
+	 * {@link OidcClientRegistration}.
+	 * @param clientRegistrationConverter the {@link Converter} used for converting a
+	 * {@link RegisteredClient} to an {@link OidcClientRegistration}
+	 * @since 1.2.0
+	 */
+	public void setClientRegistrationConverter(
+			Converter<RegisteredClient, OidcClientRegistration> clientRegistrationConverter) {
+		Assert.notNull(clientRegistrationConverter, "clientRegistrationConverter cannot be null");
+		this.clientRegistrationConverter = clientRegistrationConverter;
+	}
+
 	@Override
 	public Authentication authenticate(Authentication authentication) throws AuthenticationException {
-		OidcClientRegistrationAuthenticationToken clientRegistrationAuthentication =
-				(OidcClientRegistrationAuthenticationToken) authentication;
+		OidcClientRegistrationAuthenticationToken clientRegistrationAuthentication = (OidcClientRegistrationAuthenticationToken) authentication;
 
 		if (!StringUtils.hasText(clientRegistrationAuthentication.getClientId())) {
 			// This is not a Client Configuration Request.
-			// Return null to allow OidcClientRegistrationAuthenticationProvider to handle it.
+			// Return null to allow OidcClientRegistrationAuthenticationProvider to handle
+			// it.
 			return null;
 		}
 
 		// Validate the "registration" access token
 		AbstractOAuth2TokenAuthenticationToken<?> accessTokenAuthentication = null;
-		if (AbstractOAuth2TokenAuthenticationToken.class.isAssignableFrom(clientRegistrationAuthentication.getPrincipal().getClass())) {
-			accessTokenAuthentication = (AbstractOAuth2TokenAuthenticationToken<?>) clientRegistrationAuthentication.getPrincipal();
+		if (AbstractOAuth2TokenAuthenticationToken.class
+			.isAssignableFrom(clientRegistrationAuthentication.getPrincipal().getClass())) {
+			accessTokenAuthentication = (AbstractOAuth2TokenAuthenticationToken<?>) clientRegistrationAuthentication
+				.getPrincipal();
 		}
 		if (accessTokenAuthentication == null || !accessTokenAuthentication.isAuthenticated()) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_TOKEN);
 		}
 
 		String accessTokenValue = accessTokenAuthentication.getToken().getTokenValue();
-		OAuth2Authorization authorization = this.authorizationService.findByToken(
-				accessTokenValue, OAuth2TokenType.ACCESS_TOKEN);
+		OAuth2Authorization authorization = this.authorizationService.findByToken(accessTokenValue,
+				OAuth2TokenType.ACCESS_TOKEN);
 		if (authorization == null) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_TOKEN);
 		}
@@ -120,11 +145,12 @@ public final class OidcClientConfigurationAuthenticationProvider implements Auth
 		return OidcClientRegistrationAuthenticationToken.class.isAssignableFrom(authentication);
 	}
 
-	private OidcClientRegistrationAuthenticationToken findRegistration(OidcClientRegistrationAuthenticationToken clientRegistrationAuthentication,
+	private OidcClientRegistrationAuthenticationToken findRegistration(
+			OidcClientRegistrationAuthenticationToken clientRegistrationAuthentication,
 			OAuth2Authorization authorization) {
 
-		RegisteredClient registeredClient = this.registeredClientRepository.findByClientId(
-				clientRegistrationAuthentication.getClientId());
+		RegisteredClient registeredClient = this.registeredClientRepository
+			.findByClientId(clientRegistrationAuthentication.getClientId());
 		if (registeredClient == null) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT);
 		}
@@ -148,14 +174,16 @@ public final class OidcClientConfigurationAuthenticationProvider implements Auth
 	}
 
 	@SuppressWarnings("unchecked")
-	private static void checkScope(OAuth2Authorization.Token<OAuth2AccessToken> authorizedAccessToken, Set<String> requiredScope) {
+	private static void checkScope(OAuth2Authorization.Token<OAuth2AccessToken> authorizedAccessToken,
+			Set<String> requiredScope) {
 		Collection<String> authorizedScope = Collections.emptySet();
 		if (authorizedAccessToken.getClaims().containsKey(OAuth2ParameterNames.SCOPE)) {
 			authorizedScope = (Collection<String>) authorizedAccessToken.getClaims().get(OAuth2ParameterNames.SCOPE);
 		}
 		if (!authorizedScope.containsAll(requiredScope)) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INSUFFICIENT_SCOPE);
-		} else if (authorizedScope.size() != requiredScope.size()) {
+		}
+		else if (authorizedScope.size() != requiredScope.size()) {
 			// Restrict the access token to only contain the required scope
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_TOKEN);
 		}

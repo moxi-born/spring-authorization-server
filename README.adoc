@@ -1,19 +1,14 @@
-image::https://badges.gitter.im/Join%20Chat.svg[Gitter,link=https://gitter.im/spring-projects/spring-security?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge]
-
-image:https://github.com/spring-projects/spring-authorization-server/workflows/CI/badge.svg?branch=main["Build Status", link="https://github.com/spring-projects/spring-authorization-server/actions?query=workflow%3ACI"]
-
-= Spring Authorization Server
+= Spring Authorization Server image:https://badges.gitter.im/Join%20Chat.svg[Gitter,link=https://gitter.im/spring-projects/spring-security?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge] image:https://github.com/spring-projects/spring-authorization-server/actions/workflows/continuous-integration-workflow.yml/badge.svg["Build Status", link="https://github.com/spring-projects/spring-authorization-server/actions/workflows/continuous-integration-workflow.yml"] image:https://img.shields.io/badge/Revved%20up%20by-Develocity-06A0CE?logo=Gradle&labelColor=02303A["Revved up by Develocity", link="https://ge.spring.io/scans?&search.rootProjectNames=spring-authorization-server"]
 
 The Spring Authorization Server project, led by the https://spring.io/projects/spring-security/[Spring Security] team, is focused on delivering https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-07#section-1.1[OAuth 2.1 Authorization Server] support to the Spring community.
 
 This project replaces the Authorization Server support provided by https://spring.io/projects/spring-security-oauth/[Spring Security OAuth].
 
 == Feature Planning
-This project uses https://www.zenhub.com/[ZenHub] to prioritize the feature roadmap and help organize the project plan.
-The project board can be accessed https://app.zenhub.com/workspaces/authorization-server-5e8f3182b5e8f5841bfc4902/board?repos=248032165[here].
-It is recommended to install the ZenHub https://www.zenhub.com/extension[browser extension] as it integrates natively within GitHub's user interface.
+This project uses https://docs.github.com/en/issues/planning-and-tracking-with-projects/learning-about-projects/about-projects[GitHub Projects] to prioritize the feature roadmap and help organize the project plan.
+The project board can be accessed https://github.com/orgs/spring-projects/projects/8[here].
 
-The feature list can be viewed in the https://docs.spring.io/spring-authorization-server/docs/current/reference/html/overview.html#feature-list[reference documentation].
+The feature list can be viewed in the https://docs.spring.io/spring-authorization-server/reference/overview.html#feature-list[reference documentation].
 
 == Support Policy
 The Spring Authorization Server project provides software support through the https://tanzu.vmware.com/support/oss[VMware Tanzu OSS support policy].
@@ -36,13 +31,12 @@ The goal is to leverage all the knowledge learned thus far and apply the same to
 Submitted work via pull requests should follow the same coding style/conventions and adopt the same or similar design patterns that have been established in Spring Security's OAuth 2.0 support.
 
 == Documentation
-Be sure to read the https://docs.spring.io/spring-authorization-server/docs/current/reference/html/[Spring Authorization Server Reference] and https://docs.spring.io/spring-security/reference[Spring Security Reference], as well as the https://docs.spring.io/spring-security/reference/servlet/oauth2/index.html[OAuth 2.0 Reference], which describes the Client and Resource Server features available.
+Be sure to read the https://docs.spring.io/spring-authorization-server/reference/[Spring Authorization Server Reference] and https://docs.spring.io/spring-security/reference[Spring Security Reference], as well as the https://docs.spring.io/spring-security/reference/servlet/oauth2/index.html[OAuth 2.0 Reference], which describes the Client and Resource Server features available.
 
 JavaDoc is also available for the https://docs.spring.io/spring-authorization-server/docs/current/api/[Spring Authorization Server API] and https://docs.spring.io/spring-security/site/docs/current/api/[Spring Security API].
 
 == Code of Conduct
-This project adheres to the Contributor Covenant link:CODE_OF_CONDUCT.adoc[code of conduct].
-By participating, you are expected to uphold this code. Please report unacceptable behavior to spring-code-of-conduct@pivotal.io.
+Please see our https://github.com/spring-projects/.github/blob/main/CODE_OF_CONDUCT.md[code of conduct].
 
 == Downloading Artifacts
 See https://github.com/spring-projects/spring-framework/wiki/Spring-Framework-Artifacts[downloading Spring artifacts] for Maven repository information.
@@ -67,7 +61,7 @@ git clone git@github.com:spring-projects/spring-authorization-server.git
 === Install all spring-\* jars into your local Maven cache
 [indent=0]
 ----
-./gradlew install
+./gradlew publishToMavenLocal
 ----
 
 === Compile and test; build all jars, distribution zips, and docs
@@ -79,7 +73,7 @@ git clone git@github.com:spring-projects/spring-authorization-server.git
 Discover more commands with `./gradlew tasks`.
 
 == Getting Support
-Check out the https://stackoverflow.com/questions/tagged/spring-security[Spring Security tags on Stack Overflow].
+Check out the https://stackoverflow.com/questions/tagged/spring-authorization-server[Spring Authorization Server tags on Stack Overflow].
 https://spring.io/support[Commercial support] is available too.
 
 == Contributing

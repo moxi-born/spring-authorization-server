@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import org.springframework.lang.Nullable;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsent;
@@ -28,8 +29,9 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.util.Assert;
 
 /**
- * An {@link OAuth2AuthenticationContext} that holds an {@link OAuth2AuthorizationConsent.Builder} and additional information
- * and is used when customizing the building of the {@link OAuth2AuthorizationConsent}.
+ * An {@link OAuth2AuthenticationContext} that holds an
+ * {@link OAuth2AuthorizationConsent.Builder} and additional information and is used when
+ * customizing the building of the {@link OAuth2AuthorizationConsent}.
  *
  * @author Steve Riesenberg
  * @author Joe Grandja
@@ -39,6 +41,7 @@ import org.springframework.util.Assert;
  * @see OAuth2AuthorizationConsentAuthenticationProvider#setAuthorizationConsentCustomizer(Consumer)
  */
 public final class OAuth2AuthorizationConsentAuthenticationContext implements OAuth2AuthenticationContext {
+
 	private final Map<Object, Object> context;
 
 	private OAuth2AuthorizationConsentAuthenticationContext(Map<Object, Object> context) {
@@ -59,8 +62,8 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 	}
 
 	/**
-	 * Returns the {@link OAuth2AuthorizationConsent.Builder authorization consent builder}.
-	 *
+	 * Returns the {@link OAuth2AuthorizationConsent.Builder authorization consent
+	 * builder}.
 	 * @return the {@link OAuth2AuthorizationConsent.Builder}
 	 */
 	public OAuth2AuthorizationConsent.Builder getAuthorizationConsent() {
@@ -69,7 +72,6 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 	/**
 	 * Returns the {@link RegisteredClient registered client}.
-	 *
 	 * @return the {@link RegisteredClient}
 	 */
 	public RegisteredClient getRegisteredClient() {
@@ -78,7 +80,6 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 	/**
 	 * Returns the {@link OAuth2Authorization authorization}.
-	 *
 	 * @return the {@link OAuth2Authorization}
 	 */
 	public OAuth2Authorization getAuthorization() {
@@ -87,7 +88,6 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 	/**
 	 * Returns the {@link OAuth2AuthorizationRequest authorization request}.
-	 *
 	 * @return the {@link OAuth2AuthorizationRequest}
 	 */
 	public OAuth2AuthorizationRequest getAuthorizationRequest() {
@@ -95,8 +95,8 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 	}
 
 	/**
-	 * Constructs a new {@link Builder} with the provided {@link OAuth2AuthorizationConsentAuthenticationToken}.
-	 *
+	 * Constructs a new {@link Builder} with the provided
+	 * {@link OAuth2AuthorizationConsentAuthenticationToken}.
 	 * @param authentication the {@link OAuth2AuthorizationConsentAuthenticationToken}
 	 * @return the {@link Builder}
 	 */
@@ -107,15 +107,16 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 	/**
 	 * A builder for {@link OAuth2AuthorizationConsentAuthenticationContext}.
 	 */
-	public static final class Builder extends AbstractBuilder<OAuth2AuthorizationConsentAuthenticationContext, Builder> {
+	public static final class Builder
+			extends AbstractBuilder<OAuth2AuthorizationConsentAuthenticationContext, Builder> {
 
 		private Builder(OAuth2AuthorizationConsentAuthenticationToken authentication) {
 			super(authentication);
 		}
 
 		/**
-		 * Sets the {@link OAuth2AuthorizationConsent.Builder authorization consent builder}.
-		 *
+		 * Sets the {@link OAuth2AuthorizationConsent.Builder authorization consent
+		 * builder}.
 		 * @param authorizationConsent the {@link OAuth2AuthorizationConsent.Builder}
 		 * @return the {@link Builder} for further configuration
 		 */
@@ -125,7 +126,6 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 		/**
 		 * Sets the {@link RegisteredClient registered client}.
-		 *
 		 * @param registeredClient the {@link RegisteredClient}
 		 * @return the {@link Builder} for further configuration
 		 */
@@ -135,7 +135,6 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 		/**
 		 * Sets the {@link OAuth2Authorization authorization}.
-		 *
 		 * @param authorization the {@link OAuth2Authorization}
 		 * @return the {@link Builder} for further configuration
 		 */
@@ -145,7 +144,6 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 		/**
 		 * Sets the {@link OAuth2AuthorizationRequest authorization request}.
-		 *
 		 * @param authorizationRequest the {@link OAuth2AuthorizationRequest}
 		 * @return the {@link Builder} for further configuration
 		 */
@@ -155,14 +153,16 @@ public final class OAuth2AuthorizationConsentAuthenticationContext implements OA
 
 		/**
 		 * Builds a new {@link OAuth2AuthorizationConsentAuthenticationContext}.
-		 *
 		 * @return the {@link OAuth2AuthorizationConsentAuthenticationContext}
 		 */
 		public OAuth2AuthorizationConsentAuthenticationContext build() {
 			Assert.notNull(get(OAuth2AuthorizationConsent.Builder.class), "authorizationConsentBuilder cannot be null");
 			Assert.notNull(get(RegisteredClient.class), "registeredClient cannot be null");
-			Assert.notNull(get(OAuth2Authorization.class), "authorization cannot be null");
-			Assert.notNull(get(OAuth2AuthorizationRequest.class), "authorizationRequest cannot be null");
+			OAuth2Authorization authorization = get(OAuth2Authorization.class);
+			Assert.notNull(authorization, "authorization cannot be null");
+			if (authorization.getAuthorizationGrantType().equals(AuthorizationGrantType.AUTHORIZATION_CODE)) {
+				Assert.notNull(get(OAuth2AuthorizationRequest.class), "authorizationRequest cannot be null");
+			}
 			return new OAuth2AuthorizationConsentAuthenticationContext(getContext());
 		}
 
